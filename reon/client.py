@@ -64,15 +64,30 @@ class ReonClient:
         self.address = address
         self._token = token if token is not None else _load_token_or_raise()
         self._bleak = BleakClient(address)
+        self.model: str | None = None
+        self.capabilities: protocol.Capabilities = protocol.DEFAULT_CAPABILITIES
 
     async def __aenter__(self) -> "ReonClient":
         await self._bleak.__aenter__()
         try:
+            await self._read_model_safe()
             await self._authenticate()
         except Exception:
             await self._bleak.__aexit__(None, None, None)
             raise
         return self
+
+    async def _read_model_safe(self) -> None:
+        """Read the BLE Device Information / Model Number characteristic and
+        derive per-model capabilities. Quietly leaves defaults if the
+        characteristic isn't readable."""
+        try:
+            data = await self._bleak.read_gatt_char(protocol.MODEL_NUMBER_UUID)
+            self.model = bytes(data).decode("ascii", errors="replace").strip("\x00").strip()
+            self.capabilities = protocol.capabilities_for(self.model)
+            log.info("Device model=%r capabilities=%r", self.model, self.capabilities)
+        except Exception:
+            pass
 
     async def __aexit__(self, exc_type, exc, tb):
         await self._bleak.__aexit__(exc_type, exc, tb)

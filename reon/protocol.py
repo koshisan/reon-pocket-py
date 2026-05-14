@@ -1,7 +1,17 @@
-"""Sony Reon Pocket 3 BLE protocol constants and frame builders."""
+"""Sony Reon Pocket BLE protocol constants and frame builders.
+
+Verified empirically against RNP-3 (firmware 2.3.6) and RNP-P1 (firmware
+2.2.1). The two devices speak the same custom service with the same
+characteristic UUIDs and handle layout. They differ in:
+  - cool level range: RNP-3 caps at L3, RNP-P1 at L4
+  - heat level range: both cap at L3
+  - telemetry frame: RNP-P1 emits 18 bytes with 7 active 16-bit sensor
+    readings instead of 4, plus a 0xffff sentinel where no sensor is wired
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import IntEnum
 
 # Advertised name prefix used to recognise the device during scan. Sony's
@@ -22,6 +32,10 @@ CHAR_STATUS  = "04ca1584-fd57-404e-8459-c5ef8d765c8d"  # mode + runtime counters
 AUTH_TOKEN_LEN = 17
 COMMAND_FRAME_LEN = 12
 
+# Standard BLE Device Information service — used to identify the device model
+# at connect time so we can pick the right capability profile.
+MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+
 
 class Mode(IntEnum):
     COOL = 0x01
@@ -30,39 +44,70 @@ class Mode(IntEnum):
     STOP = 0x04
 
 
-# Wire-level levels are 0..3 inclusive (four steps). The Sony app's UI shows 1..4
-# which maps one-to-one onto wire 0..3. Stop is a separate mode, not "level 0".
+# Wire levels are 0..LEVEL_MAX_ABSOLUTE inclusive across all known models;
+# per-direction caps live in Capabilities (looked up by model).
 LEVEL_MIN = 0
-LEVEL_MAX = 3
+LEVEL_MAX_ABSOLUTE = 4
+LEVEL_MAX = LEVEL_MAX_ABSOLUTE  # backwards-compat alias
+
+
+@dataclass(frozen=True)
+class Capabilities:
+    """Per-model command-range caps. Both cool and heat min at 0."""
+    cool_max: int
+    heat_max: int
+
+
+DEFAULT_CAPABILITIES = Capabilities(cool_max=3, heat_max=3)
+
+CAPABILITIES_BY_MODEL: dict[str, Capabilities] = {
+    "RNP-3":  Capabilities(cool_max=3, heat_max=3),
+    "RNP-P1": Capabilities(cool_max=4, heat_max=3),
+}
+
+
+def capabilities_for(model: str | None) -> Capabilities:
+    """Look up capabilities by model string (e.g. from BLE Model Number).
+    Falls back to the conservative default if unknown."""
+    if not model:
+        return DEFAULT_CAPABILITIES
+    return CAPABILITIES_BY_MODEL.get(model.strip(), DEFAULT_CAPABILITIES)
 
 
 def build_command(mode: Mode | int, level: int = 0) -> bytes:
     """Return the 12-byte command frame for a mode/level write to CHAR_CMD."""
-    if mode != Mode.STOP and not (LEVEL_MIN <= level <= LEVEL_MAX):
-        raise ValueError(f"level {level} out of range {LEVEL_MIN}..{LEVEL_MAX}")
+    if mode != Mode.STOP and not (LEVEL_MIN <= level <= LEVEL_MAX_ABSOLUTE):
+        raise ValueError(f"level {level} out of range {LEVEL_MIN}..{LEVEL_MAX_ABSOLUTE}")
     return bytes([0, 0, 0, int(mode), level, 0, 0, 0, 0, 0, 0, 0])
 
 
-def decode_telemetry(data: bytes) -> dict | None:
-    """Decode a notify frame from CHAR_TELEM. Returns a dict of named float temps.
+def _read_temp(raw: bytes) -> float | None:
+    """Decode one 16-bit big-endian temperature field, returning None for the
+    0xffff sentinel that the Reon uses to indicate an unwired sensor slot."""
+    v = int.from_bytes(raw, "big")
+    return None if v == 0xffff else v / 100.0
 
-    Frame: 01 T1 T2 T3 T4 ff*8 00 00, with each T as int16 big-endian in 1/100 °C.
-    Empirical channel mapping:
-      skin_plate    — the user-facing plate (changes sign with mode)
-      heatsink      — the outer plate (mirrors skin_plate)
-      board         — board sensor near the skin plate (tracks skin_plate at ~0.4×)
-      ambient       — slowest-drifting sensor, presumed ambient/MCU
+
+def decode_telemetry(data: bytes) -> dict | None:
+    """Decode a notify frame from CHAR_TELEM.
+
+    Both generations emit a 0x01 marker followed by big-endian int16 fields
+    in 1/100 °C. RNP-3 sends 4 sensors; RNP-P1 sends 7 (one slot is the
+    0xffff sentinel and one is humidity/zero). We only surface the first 4
+    here — the rest are model-specific and not currently mapped.
+
+    Empirical channel mapping on RNP-3:
+      board / skin_plate / heatsink / ambient
+    On RNP-P1 the same slots are populated by different sensors; the
+    'ambient' slot tends to be 0xffff (None).
     """
     if len(data) < 9:
         return None
-    raw = [int.from_bytes(data[1 + 2 * i:3 + 2 * i], "big") / 100.0 for i in range(4)]
-    # The Reon ships T1..T4 in a fixed order; the labels below are empirical guesses
-    # that should be revisited if you have access to Sony's datasheet.
     return {
-        "board":      raw[0],
-        "skin_plate": raw[1],
-        "heatsink":   raw[2],
-        "ambient":    raw[3],
+        "board":      _read_temp(data[1:3]),
+        "skin_plate": _read_temp(data[3:5]),
+        "heatsink":   _read_temp(data[5:7]),
+        "ambient":    _read_temp(data[7:9]),
     }
 
 

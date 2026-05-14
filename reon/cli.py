@@ -104,14 +104,20 @@ async def cmd_info(args):
                 print(f"    char {ch.uuid}  handle=0x{ch.handle:04x}  [{props}]")
 
 
+def _fmt_temp(v: float | None) -> str:
+    return f"{v:5.2f}" if v is not None else "  ---"
+
+
 async def cmd_listen(args):
     addr = await _resolve_address(args.mac)
     print(f"[{ts()}] connecting {addr} …")
     async with client.ReonClient(addr) as r:
+        print(f"[{ts()}] model={r.model!r}  cool_max=L{r.capabilities.cool_max}  heat_max=L{r.capabilities.heat_max}")
+
         def on_telem(t):
-            print(f"[{ts()}] TELEM  skin={t['skin_plate']:5.2f}  "
-                  f"sink={t['heatsink']:5.2f}  board={t['board']:5.2f}  "
-                  f"ambient={t['ambient']:5.2f}")
+            print(f"[{ts()}] TELEM  skin={_fmt_temp(t['skin_plate'])}  "
+                  f"sink={_fmt_temp(t['heatsink'])}  board={_fmt_temp(t['board'])}  "
+                  f"ambient={_fmt_temp(t['ambient'])}")
 
         def on_state(s):
             print(f"[{ts()}] STATE  mode=0x{s['mode']:02x}  level=0x{s['level']:02x}  "
@@ -126,6 +132,9 @@ async def cmd_listen(args):
 async def cmd_cool(args):
     addr = await _resolve_address(args.mac)
     async with client.ReonClient(addr) as r:
+        if args.level > r.capabilities.cool_max:
+            sys.exit(f"Cool L{args.level} exceeds max for this device "
+                     f"(model={r.model!r}, cool_max=L{r.capabilities.cool_max}).")
         await r.set_cool(args.level)
     print(f"[{ts()}] cool L{args.level} set.")
 
@@ -133,6 +142,9 @@ async def cmd_cool(args):
 async def cmd_heat(args):
     addr = await _resolve_address(args.mac)
     async with client.ReonClient(addr) as r:
+        if args.level > r.capabilities.heat_max:
+            sys.exit(f"Heat L{args.level} exceeds max for this device "
+                     f"(model={r.model!r}, heat_max=L{r.capabilities.heat_max}).")
         await r.set_heat(args.level)
     print(f"[{ts()}] heat L{args.level} set.")
 
