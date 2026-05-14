@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reon-pocket-py"
+version = "0.1.0"
+description = "Reverse-engineered BLE control for the Sony Reon Pocket 3"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{name = "koshisan"}]
+keywords = ["bluetooth", "ble", "reon", "sony", "reverse-engineering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Hardware",
+]
+dependencies = [
+    "bleak>=0.21",
+]
+
+[project.urls]
+Homepage = "https://github.com/koshisan/reon-pocket-py"
+Issues   = "https://github.com/koshisan/reon-pocket-py/issues"
+
+[project.scripts]
+reon = "reon.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["reon*"]
