@@ -36,9 +36,15 @@ async def scan(timeout: float = 8.0) -> list[tuple[str, str | None, int | None]]
 
 
 async def find_reon(timeout: float = 8.0) -> str | None:
-    """Return the BLE address of the first Reon found, or None."""
+    """Return the BLE address of the first Reon found, or None.
+
+    Matches any device whose advertised name starts with ``RNP-``, so newer
+    generations (e.g. RNP-4) get picked up too. Note that the wire protocol
+    is only verified on RNP-3; discovery is intentionally loose, but command
+    writes may still fail with vendor-defined ATT errors on other models.
+    """
     for addr, name, _ in await scan(timeout):
-        if name == protocol.DEVICE_NAME:
+        if name and name.startswith(protocol.DEVICE_NAME_PREFIX):
             return addr
     return None
 

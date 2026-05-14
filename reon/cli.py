@@ -44,9 +44,10 @@ async def cmd_scan(args):
     print(f"[{ts()}] scanning {args.timeout}s …")
     found_reon = False
     for addr, name, rssi in await client.scan(args.timeout):
-        marker = f"  <-- {protocol.DEVICE_NAME}" if name == protocol.DEVICE_NAME else ""
+        is_reon = bool(name and name.startswith(protocol.DEVICE_NAME_PREFIX))
+        marker = f"  <-- {name}" if is_reon else ""
         print(f"  {addr}  rssi={rssi}  name={name!r}{marker}")
-        if name == protocol.DEVICE_NAME:
+        if is_reon:
             found_reon = True
     if not found_reon:
         print(f"\n[{ts()}] No Reon visible. If the phone's Sony app is currently "

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-# Advertised name used to recognise the device during scan.
-DEVICE_NAME = "RNP-3"
+# Advertised name prefix used to recognise the device during scan. Sony's
+# wearable Reon line ships as "RNP-3" today; future generations are expected
+# to follow the same prefix ("RNP-4", "RNP-5", …). Whether the wire protocol
+# below applies to them is unverified — discovery is loose, command logic is not.
+DEVICE_NAME = "RNP-3"  # back-compat alias; prefer DEVICE_NAME_PREFIX
+DEVICE_NAME_PREFIX = "RNP-"
 
 # Custom GATT service and the characteristics we actually use.
 # Note: UUID group 3 is `404e`, NOT `4057` — easy to misread.
